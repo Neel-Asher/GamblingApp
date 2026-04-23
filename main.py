@@ -1,59 +1,64 @@
+from services.betting_service import betting_service
 from services.game_session_manager import session_manager
+from services.analytics_service import analytics_service
 from rich.console import Console
 from rich.table import Table
-import time
+
+console = Console()
 
 
-def run_uc4_demo():
-    console = Console()
+def run_uc5_demo():
     username = "neel123"
 
-    console.rule("[bold cyan]UC4: Game Session Management Demo")
-
-    console.print("\n[green]Starting new session...[/green]")
-    
-    existing = session_manager.get_active_session(username)
-    if existing:
-        session_manager.end_session(existing, "RESET_BEFORE_DEMO")
-
     session_id = session_manager.start_session(username)
-    console.print(f"[bold]Session Started:[/bold] {session_id}")
 
-    console.print("\n[blue]Simulating gameplay...[/blue]")
-    time.sleep(1)
+    console.rule("[bold green]UC5: Analytics Demo")
 
-    console.print("\n[yellow]Pausing session...[/yellow]")
-    session_manager.pause_session(session_id, "USER_BREAK")
-    time.sleep(1)
+    # Play 10 games
+    for i in range(10):
+        bet = betting_service.place_bet(
+            username=username,
+            session_id=session_id,
+            base_bet=100,
+            win_probability=0.5,
+            strategy_code="MARTINGALE"
+        )
 
-    console.print("\n[green]Resuming session...[/green]")
-    session_manager.resume_session(session_id)
-    time.sleep(1)
+        result = betting_service.resolve_bet(bet["bet_id"])
 
-    console.print("\n[yellow]Pausing again...[/yellow]")
-    session_manager.pause_session(session_id, "PHONE_CALL")
-    time.sleep(1)
+        session_manager.update_after_game(session_id, result["stake_after"])
 
-    console.print("\n[green]Resuming again...[/green]")
-    session_manager.resume_session(session_id)
-    time.sleep(1)
+        reason = session_manager.check_and_end_session(
+            session_id,
+            result["stake_after"]
+        )
 
-    console.print("\n[red]Ending session...[/red]")
-    session_manager.end_session(session_id, "USER_EXIT")
+        if reason:
+            print(f"Session ended due to: {reason}")
+            break
 
-    session = session_manager.get_session_details(session_id)
+    # 📊 SUMMARY
+    summary = analytics_service.get_session_summary(session_id)
 
-    table = Table(title="Session Summary")
+    if summary:
+        table = Table(title="Session Summary")
 
-    table.add_column("Field", style="cyan")
-    table.add_column("Value", style="magenta")
+        table.add_column("Metric")
+        table.add_column("Value")
 
-    for key, value in session.items():
-        table.add_row(str(key), str(value))
+        table.add_row("Total Games", str(summary["total_games"]))
+        table.add_row("Wins", str(summary["total_wins"]))
+        table.add_row("Losses", str(summary["total_losses"]))
+        table.add_row("Net Profit", str(summary["net_profit"]))
+        table.add_row("Win Rate", str(round(summary["win_rate"], 2)))
+        table.add_row("ROI", str(round(summary["roi"], 2)))
+        table.add_row("Longest Win Streak", str(summary["longest_win_streak"]))
+        table.add_row("Longest Loss Streak", str(summary["longest_loss_streak"]))
 
-    console.print(table)
+        console.print(table)
 
-    console.rule("[bold green]UC4 Demo Finished")
+    console.rule("[bold blue]UC5 Demo Finished")
+
 
 if __name__ == "__main__":
-    run_uc4_demo()
+    run_uc5_demo()

@@ -1,54 +1,59 @@
-from services.betting_service import betting_service
+from services.game_session_manager import session_manager
 from rich.console import Console
 from rich.table import Table
+import time
 
-console = Console()
 
-
-def run_uc3_demo():
+def run_uc4_demo():
+    console = Console()
     username = "neel123"
-    session_id = 3
 
-    base_bet = 100
-    win_probability = 0.5
-    strategy = "MARTINGALE" 
+    console.rule("[bold cyan]UC4: Game Session Management Demo")
 
-    console.rule("[bold yellow]UC3: Betting Engine Demo")
+    console.print("\n[green]Starting new session...[/green]")
+    
+    existing = session_manager.get_active_session(username)
+    if existing:
+        session_manager.end_session(existing, "RESET_BEFORE_DEMO")
 
-    for i in range(1, 11):
-        try:
-            console.print(f"\n[cyan]Game {i}[/cyan]")
+    session_id = session_manager.start_session(username)
+    console.print(f"[bold]Session Started:[/bold] {session_id}")
 
-            bet = betting_service.place_bet(
-                username=username,
-                session_id=session_id,
-                base_bet=base_bet,
-                win_probability=win_probability,
-                strategy_code=strategy
-            )
+    console.print("\n[blue]Simulating gameplay...[/blue]")
+    time.sleep(1)
 
-            result = betting_service.resolve_bet(bet["bet_id"])
+    console.print("\n[yellow]Pausing session...[/yellow]")
+    session_manager.pause_session(session_id, "USER_BREAK")
+    time.sleep(1)
 
-            table = Table(show_header=True, header_style="bold magenta")
-            table.add_column("Field")
-            table.add_column("Value")
+    console.print("\n[green]Resuming session...[/green]")
+    session_manager.resume_session(session_id)
+    time.sleep(1)
 
-            table.add_row("Bet ID", str(bet["bet_id"]))
-            table.add_row("Strategy", bet["strategy"])
-            table.add_row("Bet Amount", str(bet["bet_amount"]))
-            table.add_row("Outcome", result["outcome"])
-            table.add_row("Payout", str(result["payout"]))
-            table.add_row("Stake After", str(result["stake_after"]))
+    console.print("\n[yellow]Pausing again...[/yellow]")
+    session_manager.pause_session(session_id, "PHONE_CALL")
+    time.sleep(1)
 
-            console.print(table)
+    console.print("\n[green]Resuming again...[/green]")
+    session_manager.resume_session(session_id)
+    time.sleep(1)
 
-        except Exception as e:
-            console.print(f"\n[red]{str(e)}[/red]")
-            console.print("[bold yellow]Session stopped.[/bold yellow]")
-            break
+    console.print("\n[red]Ending session...[/red]")
+    session_manager.end_session(session_id, "USER_EXIT")
 
-    console.rule("[bold green]UC3 Demo Finished")
+    session = session_manager.get_session_details(session_id)
 
+    table = Table(title="Session Summary")
+
+    table.add_column("Field", style="cyan")
+    table.add_column("Value", style="magenta")
+
+    for key, value in session.items():
+        table.add_row(str(key), str(value))
+
+    console.print(table)
+
+    console.rule("[bold green]UC4 Demo Finished")
 
 if __name__ == "__main__":
-    run_uc3_demo()
+    run_uc4_demo()

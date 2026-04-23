@@ -41,6 +41,8 @@ class BettingService:
             stake_before = Decimal(gambler["current_stake"])
             odds_value = Decimal(odds_value)
 
+            print("DEBUG → Current Stake:", stake_before)
+
             cursor.execute("""
                 SELECT * FROM betting_preferences 
                 WHERE gambler_id = %s
@@ -73,7 +75,10 @@ class BettingService:
             last_outcome = None
 
             if last_bet_row:
-                last_bet = Decimal(last_bet_row["bet_amount"])
+                if last_bet_row and last_bet_row["bet_amount"]:
+                    last_bet = Decimal(last_bet_row["bet_amount"])
+                else:
+                    last_bet = Decimal(base_bet)
 
                 cursor.execute("""
                     SELECT outcome 
@@ -93,6 +98,16 @@ class BettingService:
 
             bet_amount = Decimal(strategy.get_next_bet(context))
 
+            try:
+                bet_amount = Decimal(bet_amount)
+            except:
+                raise ValueError(f"Strategy returned invalid value: {bet_amount}")
+
+            if bet_amount <= 0:
+                raise ValueError(f"Invalid bet amount after strategy: {bet_amount}")
+
+            print("DEBUG → Strategy Output:", bet_amount, type(bet_amount))
+
             max_bet_cap = Decimal("10000")
 
             if bet_amount > max_bet_cap:
@@ -102,7 +117,7 @@ class BettingService:
                 loss_limit = Decimal(prefs["session_loss_limit"])
                 loss_so_far = Decimal(session["starting_stake"]) - stake_before
 
-                if loss_so_far >= loss_limit:
+                if loss_so_far > loss_limit:
                         self._end_session(cursor, session_id, "LOSS_LIMIT", stake_before)
                         conn.commit()
                         raise ValueError("Session ended: loss limit reached")
@@ -118,9 +133,6 @@ class BettingService:
 
             if bet_amount > stake_before:
                 bet_amount = stake_before
-
-            if bet_amount <= 0:
-                raise ValueError("Invalid bet amount after strategy")
 
             if prefs:
                 if bet_amount < prefs["min_bet"]:

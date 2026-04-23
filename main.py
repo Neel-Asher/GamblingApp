@@ -1,86 +1,54 @@
-from services.gambler_profile_service import gambler_service
-from services.stake_management_service import stake_service
-from config.database import db
+from services.betting_service import betting_service
+from rich.console import Console
+from rich.table import Table
+
+console = Console()
 
 
-def setup_demo_user():
-    try:
-        gambler = gambler_service.create_gambler(
-            username="neel123",
-            full_name="Neel Asher",
-            email="neel@test.com",
-            initial_stake=1000
-        )
-        print("Gambler created:", gambler)
-    except Exception:
-        print("Gambler already exists")
+def run_uc3_demo():
+    username = "neel123"
+    session_id = 3
 
-    return gambler_service.get_gambler_by_username("neel123")
+    base_bet = 100
+    win_probability = 0.5
+    strategy = "MARTINGALE" 
 
+    console.rule("[bold yellow]UC3: Betting Engine Demo")
 
-def create_session(gambler_id):
-    db.execute("""
-        INSERT INTO sessions (gambler_id, status, starting_stake)
-        VALUES (%s, 'ACTIVE', %s)
-    """, (gambler_id, 1000))
+    for i in range(1, 11):
+        try:
+            console.print(f"\n[cyan]Game {i}[/cyan]")
 
-    session = db.execute("""
-        SELECT session_id FROM sessions 
-        WHERE gambler_id = %s 
-        ORDER BY session_id DESC LIMIT 1
-    """, (gambler_id,), fetch=True)
+            bet = betting_service.place_bet(
+                username=username,
+                session_id=session_id,
+                base_bet=base_bet,
+                win_probability=win_probability,
+                strategy_code=strategy
+            )
 
-    return session[0]["session_id"]
+            result = betting_service.resolve_bet(bet["bet_id"])
 
+            table = Table(show_header=True, header_style="bold magenta")
+            table.add_column("Field")
+            table.add_column("Value")
 
-def run_uc2_demo():
-    print("\n===== UC2: STAKE MANAGEMENT DEMO =====\n")
+            table.add_row("Bet ID", str(bet["bet_id"]))
+            table.add_row("Strategy", bet["strategy"])
+            table.add_row("Bet Amount", str(bet["bet_amount"]))
+            table.add_row("Outcome", result["outcome"])
+            table.add_row("Payout", str(result["payout"]))
+            table.add_row("Stake After", str(result["stake_after"]))
 
-    gambler = setup_demo_user()
-    session_id = create_session(gambler["gambler_id"])
+            console.print(table)
 
-    print(f"Session created: {session_id}")
+        except Exception as e:
+            console.print(f"\n[red]{str(e)}[/red]")
+            console.print("[bold yellow]Session stopped.[/bold yellow]")
+            break
 
-    # Initial stake
-    print("\nCurrent Stake:")
-    print(stake_service.get_current_stake("neel123"))
-
-    # Deposit
-    print("\nDepositing 500...")
-    stake_service.deposit("neel123", 500, session_id)
-
-    # Withdraw
-    print("\nWithdrawing 200...")
-    stake_service.withdraw("neel123", 200, session_id)
-
-    # Adjust
-    print("\nAdjusting -100...")
-    stake_service.adjust_stake("neel123", -100, session_id)
-
-    # Final stake
-    print("\nFinal Stake:")
-    print(stake_service.get_current_stake("neel123"))
-
-    # Transaction history
-    print("\nTransaction History:")
-    history = stake_service.get_transaction_history("neel123")
-    for txn in history:
-        print(txn)
-
-    # Stake summary
-    print("\nStake Summary:")
-    summary = stake_service.get_stake_summary("neel123")
-    print(summary)
-
-    # Session stats
-    print("\nSession Stats:")
-    stats = db.execute("""
-        SELECT peak_stake, lowest_stake 
-        FROM sessions WHERE session_id = %s
-    """, (session_id,), fetch=True)
-
-    print(stats[0])
+    console.rule("[bold green]UC3 Demo Finished")
 
 
 if __name__ == "__main__":
-    run_uc2_demo()
+    run_uc3_demo()

@@ -312,6 +312,16 @@ class GameSessionManager:
             raise ValueError("Session not found")
 
         return result[0]
+    
+    def get_session_summary(self, session_id):
+        result = db.execute("""
+            SELECT * FROM sessions WHERE session_id = %s
+        """, (session_id,), fetch=True)
+
+        if not result:
+            raise ValueError("Session not found")
+
+        return result[0]
 
 
 session_manager = GameSessionManager()

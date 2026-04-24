@@ -11,9 +11,22 @@ class GameStatusDisplay:
 
     @staticmethod
     def display_game_header(game_no):
-        print(f"\n🎮 GAME {game_no}")
+        print(f"\nGAME {game_no}")
         print("-" * 40)
 
     @staticmethod
     def display_loading(message="Processing game..."):
-        print(f"\n⏳ {message}")
+        print(f"\n{message}")
+
+    @staticmethod
+    def display_session_status(session):
+        print("\nSESSION STATUS")
+        print("-" * 30)
+        print(f"Session ID: {session['session_id']}")
+        print(f"Username: {session['username']}")
+        print(f"Status: {session['status']}")
+        print(f"Current Stake: {session['lowest_stake'] + (session['peak_stake'] - session['starting_stake'])}")
+        print(f"Games Played: {session['games_played']}")
+        print(f"Peak Stake: {session['peak_stake']}")
+        print(f"Lowest Stake: {session['lowest_stake']}")
+        print("-" * 30)

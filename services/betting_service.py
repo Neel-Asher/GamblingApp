@@ -2,6 +2,7 @@ from config.database import db
 from decimal import Decimal
 from strategies.strategy_factory import StrategyFactory 
 from validators.input_validator import InputValidator
+from services.game_session_manager import session_manager
 import random
 
 
@@ -23,11 +24,7 @@ class BettingService:
         cursor = conn.cursor(dictionary=True)
 
         try:
-            conn.start_transaction()
 
-            # -----------------------------
-            # 1. FETCH GAMBLER
-            # -----------------------------
             cursor.execute(
                 "SELECT * FROM gamblers WHERE username = %s",
                 (username,)
@@ -37,12 +34,6 @@ class BettingService:
             if not gambler:
                 raise ValueError("Gambler not found")
 
-            stake_before = Decimal(gambler["current_stake"])
-            odds_value = Decimal(odds_value)
-
-            # -----------------------------
-            # 2. FETCH SESSION
-            # -----------------------------
             cursor.execute(
                 "SELECT * FROM sessions WHERE session_id = %s",
                 (session_id,)
@@ -55,110 +46,30 @@ class BettingService:
             if session["status"] != "ACTIVE":
                 raise ValueError("Session is not active")
 
-            # -----------------------------
-            # 3. FETCH PREFERENCES (SAFE)
-            # -----------------------------
-            cursor.execute("""
-                SELECT * FROM betting_preferences
-                WHERE gambler_id = %s
-            """, (gambler["gambler_id"],))
-            prefs = cursor.fetchone() or {}
+            stake_before = Decimal(
+                session["ending_stake"]
+                if session["ending_stake"] is not None
+                else session["starting_stake"]
+            )
 
-            # -----------------------------
-            # 4. VALIDATE INPUTS (UC6 CORE)
-            # -----------------------------
             base_bet = InputValidator.validate_initial_stake(base_bet)
             win_probability = InputValidator.validate_probability(win_probability)
 
             InputValidator.validate_bet_amount(base_bet, stake_before)
 
-            # -----------------------------
-            # 5. STRATEGY EXECUTION
-            # -----------------------------
             strategy = StrategyFactory.get_strategy(strategy_code)
-
-            cursor.execute("""
-                SELECT b.bet_amount, g.outcome
-                FROM bets b
-                LEFT JOIN game_records g ON b.bet_id = g.bet_id
-                WHERE b.session_id = %s
-                ORDER BY b.bet_id DESC
-                LIMIT 1
-            """, (session_id,))
-
-            last_row = cursor.fetchone()
-
-            last_bet = Decimal(base_bet)
-            last_outcome = None
-
-            if last_row:
-                last_bet = Decimal(last_row["bet_amount"])
-                last_outcome = last_row["outcome"]
 
             context = {
                 "base_bet": Decimal(base_bet),
-                "last_bet": last_bet,
-                "last_outcome": last_outcome
+                "last_bet": Decimal(base_bet),
+                "last_outcome": None
             }
 
-            raw_bet = strategy.get_next_bet(context)
-
-            try:
-                bet_amount = Decimal(raw_bet)
-            except:
-                raise ValueError(f"Strategy returned invalid value: {raw_bet}")
-
-            # UC6 validation (centralized rule)
+            bet_amount = Decimal(strategy.get_next_bet(context))
             bet_amount = InputValidator.validate_bet_amount(bet_amount, stake_before)
 
-            # -----------------------------
-            # 6. SESSION LIMIT CHECKS
-            # -----------------------------
-            loss_limit = prefs.get("session_loss_limit")
-            win_target = prefs.get("session_win_target")
-
-            if loss_limit is not None:
-                loss_so_far = Decimal(session["starting_stake"]) - stake_before
-                if loss_so_far > Decimal(loss_limit):
-                    self._end_session(cursor, session_id, "LOSS_LIMIT", stake_before)
-                    conn.commit()
-                    raise ValueError("Session ended: loss limit reached")
-
-            if win_target is not None:
-                profit = stake_before - Decimal(session["starting_stake"])
-                if profit >= Decimal(win_target):
-                    self._end_session(cursor, session_id, "WIN_TARGET", stake_before)
-                    conn.commit()
-                    raise ValueError("Session ended: win target reached")
-
-            # -----------------------------
-            # 7. PREFS VALIDATION (STRICT)
-            # -----------------------------
-            if prefs:
-                min_bet = prefs.get("min_bet")
-                max_bet = prefs.get("max_bet")
-
-                if min_bet is not None and bet_amount < Decimal(min_bet):
-                    raise ValueError("Below min bet")
-
-                if max_bet is not None and bet_amount > Decimal(max_bet):
-                    raise ValueError("Above max bet")
-
-            # -----------------------------
-            # 8. FINAL SAFETY CHECKS
-            # -----------------------------
-            InputValidator.validate_non_negative_stake(stake_before - bet_amount)
-
             stake_after = stake_before - bet_amount
-            potential_win = bet_amount * odds_value
-
-            # -----------------------------
-            # 9. DB UPDATE
-            # -----------------------------
-            cursor.execute(
-                "UPDATE gamblers SET current_stake = %s WHERE gambler_id = %s",
-                (stake_after, gambler["gambler_id"])
-            )
+            potential_win = bet_amount * Decimal(odds_value)
 
             cursor.execute("""
                 INSERT INTO bets
@@ -181,40 +92,18 @@ class BettingService:
 
             bet_id = cursor.lastrowid
 
-            cursor.execute("""
-                INSERT INTO stake_transactions
-                (session_id, gambler_id, bet_id, transaction_type,
-                amount, balance_before, balance_after, transaction_ref)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            """, (
-                session_id,
-                gambler["gambler_id"],
-                bet_id,
-                "BET_PLACED",
-                bet_amount,
-                stake_before,
-                stake_after,
-                "BET_PLACEMENT"
-            ))
-
             conn.commit()
 
             return {
                 "bet_id": bet_id,
                 "bet_amount": float(bet_amount),
                 "stake_before": float(stake_before),
-                "stake_after": float(stake_after),
-                "potential_win": float(potential_win),
-                "strategy": strategy_code
+                "stake_after": float(stake_after)
             }
-
-        except Exception as e:
-            conn.rollback()
-            raise e
 
         finally:
             cursor.close()
-            conn.close() 
+            conn.close()
 
     def resolve_bet(self, bet_id):
         conn = db.get_connection()
@@ -251,15 +140,10 @@ class BettingService:
                 net_change = -Decimal(bet["bet_amount"])
                 stake_after = stake_before
 
-            cursor.execute(
-                "UPDATE gamblers SET current_stake = %s WHERE gambler_id = %s",
-                (stake_after, bet["gambler_id"])
-            )
-
             cursor.execute("""
                 INSERT INTO game_records
                 (session_id, bet_id, outcome, payout_amount,
-                 loss_amount, net_change, stake_before, stake_after, resolved_at)
+                loss_amount, net_change, stake_before, stake_after, resolved_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
             """, (
                 bet["session_id"],
@@ -272,30 +156,24 @@ class BettingService:
                 stake_after
             ))
 
-            game_id = cursor.lastrowid
-
-            self._insert_snapshot(cursor, bet["session_id"], game_id, outcome, net_change, bet["bet_amount"])
-
             cursor.execute("""
-                INSERT INTO stake_transactions
-                (session_id, gambler_id, bet_id, transaction_type,
-                 amount, balance_before, balance_after, transaction_ref)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                UPDATE sessions
+                SET 
+                    games_played = games_played + 1,
+                    peak_stake = GREATEST(peak_stake, %s),
+                    lowest_stake = LEAST(lowest_stake, %s),
+                    ending_stake = %s
+                WHERE session_id = %s
             """, (
-                bet["session_id"],
-                bet["gambler_id"],
-                bet_id,
-                "BET_WIN" if outcome == "WIN" else "BET_LOSS",
-                payout if outcome == "WIN" else bet["bet_amount"],
-                stake_before,
                 stake_after,
-                "BET_RESULT"
+                stake_after,
+                stake_after,
+                bet["session_id"]
             ))
 
-            cursor.execute(
-                "UPDATE bets SET is_settled = TRUE WHERE bet_id = %s",
-                (bet_id,)
-            )
+            cursor.execute("""
+                UPDATE bets SET is_settled = TRUE WHERE bet_id = %s
+            """, (bet_id,))
 
             conn.commit()
 
@@ -381,6 +259,32 @@ class BettingService:
                 ended_at = NOW()
             WHERE session_id = %s
         """, ("COMPLETED", reason, ending_stake, session_id))
+    
+    def get_last_game_result(self, session_id):
+        conn = db.get_connection()
+        cursor = conn.cursor(dictionary=True)
+
+        try:
+            cursor.execute("""
+                SELECT 
+                    b.bet_id,
+                    b.bet_amount,
+                    g.outcome,
+                    g.stake_after
+                FROM bets b
+                JOIN game_records g ON b.bet_id = g.bet_id
+                WHERE b.session_id = %s
+                ORDER BY b.bet_id DESC
+                LIMIT 1
+            """, (session_id,))
+
+            result = cursor.fetchone()
+
+            return result
+
+        finally:
+            cursor.close()
+            conn.close()
 
 
 betting_service = BettingService()

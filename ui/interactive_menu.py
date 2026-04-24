@@ -3,7 +3,7 @@ class InteractiveMenu:
     @staticmethod
     def display_main_menu():
         print("\n" + "=" * 50)
-        print("        🎰 GAMBLING ENGINE MENU")
+        print("        GAMBLING ENGINE MENU")
         print("=" * 50)
         print("1. Place Bet")
         print("2. View Session Status")

@@ -48,22 +48,31 @@ class SimpleGameEngine:
                         game_no
                     )
 
-                    print(f"🎯 Outcome: {result['outcome']}")
-                    print(f"💰 Updated Stake: {result['stake_after']}")
+                    print(f"Outcome: {result['outcome']}")
+                    print(f"Updated Stake: {result['stake_after']}")
 
                     game_no += 1
 
                 except Exception as e:
-                    print(f"⚠️ Error: {e}")
+                    print(f"Error: {e}")
 
             elif choice == 2:
-                print("\n📌 Session status feature (UC8 enhancement point)")
+                    session_data = session_manager.get_session_status(self.session_id)
+                    GameStatusDisplay.display_session_status(session_data)
 
             elif choice == 3:
-                if self.last_bet_result:
-                    print("\n📊 Last bet ID:", self.last_bet_result["bet_id"])
+                result = betting_service.get_last_game_result(self.session_id)
+
+                if result:
+                    print("\nLAST GAME RESULT")
+                    print("-" * 30)
+                    print(f"Bet ID: {result['bet_id']}")
+                    print(f"Outcome: {result['outcome']}")
+                    print(f"Bet Amount: {result['bet_amount']}")
+                    print(f"Stake After: {result['stake_after']}")
+                    print("-" * 30)
                 else:
-                    print("\nNo bets placed yet.")
+                    print("\nNo games played yet.")
 
             elif choice == 4:
                 session_data = session_manager.get_session_summary(self.session_id)

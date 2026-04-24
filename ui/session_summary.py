@@ -3,7 +3,7 @@ class SessionSummary:
     @staticmethod
     def display_summary(session_data):
         print("\n" + "=" * 60)
-        print("         📊 SESSION SUMMARY")
+        print("         SESSION SUMMARY")
         print("=" * 60)
 
         print(f"Session ID      : {session_data['session_id']}")

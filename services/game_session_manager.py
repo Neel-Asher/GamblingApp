@@ -124,36 +124,18 @@ class GameSessionManager:
 
     def update_after_game(self, session_id, stake_after):
         conn = db.get_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
 
         try:
             conn.start_transaction()
 
             cursor.execute("""
-                SELECT * FROM sessions WHERE session_id = %s
-            """, (session_id,))
-            session = cursor.fetchone()
-
-            if not session:
-                raise ValueError("Session not found")
-
-            games_played = session["games_played"] + 1
-
-            peak_stake = max(Decimal(session["peak_stake"]), Decimal(stake_after))
-            lowest_stake = min(Decimal(session["lowest_stake"]), Decimal(stake_after))
-
-            cursor.execute("""
                 UPDATE sessions
-                SET games_played = %s,
-                    peak_stake = %s,
-                    lowest_stake = %s
+                SET games_played = games_played + 1,
+                    peak_stake = GREATEST(peak_stake, %s),
+                    lowest_stake = LEAST(lowest_stake, %s)
                 WHERE session_id = %s
-            """, (
-                games_played,
-                peak_stake,
-                lowest_stake,
-                session_id
-            ))
+            """, (stake_after, stake_after, session_id))
 
             conn.commit()
 
@@ -316,6 +298,19 @@ class GameSessionManager:
     def get_session_summary(self, session_id):
         result = db.execute("""
             SELECT * FROM sessions WHERE session_id = %s
+        """, (session_id,), fetch=True)
+
+        if not result:
+            raise ValueError("Session not found")
+
+        return result[0]
+    
+    def get_session_status(self, session_id):
+        result = db.execute("""
+            SELECT s.*, g.username  
+            FROM sessions s
+            JOIN gamblers g ON s.gambler_id = g.gambler_id
+            WHERE s.session_id = %s
         """, (session_id,), fetch=True)
 
         if not result:
